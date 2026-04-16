@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/users');
 const multer = require('multer');
 const fs = require('fs');
+const path = require('path');
 
 router.get('/contact', (req, res)=>{res.render('contact', {title: 'Contact Us'});});
 router.get('/about', (req, res)=>{res.render('about', {title: 'About Us'});});
@@ -20,6 +21,47 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage }).single('image');
+const uploadsDir = path.resolve(__dirname, '../uploads');
+
+async function cleanupUploadedFile(file) {
+    if (!file || !file.path) {
+        return;
+    }
+
+    try {
+        await fs.promises.unlink(file.path);
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.error('Error deleting uploaded file:', error);
+        }
+    }
+}
+
+async function cleanupUploadedFileByName(filename) {
+    if (!filename) {
+        return;
+    }
+
+    const normalizedFilename = path.basename(filename);
+    if (normalizedFilename !== filename) {
+        console.warn('Blocked unsafe image filename for deletion:', filename);
+        return;
+    }
+
+    const targetPath = path.resolve(uploadsDir, normalizedFilename);
+    if (!targetPath.startsWith(uploadsDir + path.sep)) {
+        console.warn('Blocked path traversal attempt for deletion:', filename);
+        return;
+    }
+
+    try {
+        await fs.promises.unlink(targetPath);
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.error('Error deleting image file:', error);
+        }
+    }
+}
 
 // Fetch users with pagination, sorting, and search
 router.get('/', async (req, res) => {
@@ -65,6 +107,7 @@ router.get('/', async (req, res) => {
 router.post('/add', upload, async (req, res) => {
     try {
         if (!req.body.email.includes("@")) {
+            await cleanupUploadedFile(req.file);
             res.redirect('/');
             return;
         }
@@ -81,6 +124,7 @@ router.post('/add', upload, async (req, res) => {
             message: 'User added successfully'
         };
     } catch (error) {
+        await cleanupUploadedFile(req.file);
         req.session.message = {
             type: 'danger',
             message: error.message
@@ -121,7 +165,7 @@ router.post('/update/:id', upload, async (req, res) => {
 
             // Delete the old image file if it exists
             if (oldImage) {
-                fs.unlinkSync('./uploads/' + oldImage);
+                await cleanupUploadedFileByName(oldImage);
             }
         }
 
@@ -153,11 +197,7 @@ router.get('/delete/:id', async (req, res) => {
         const user = await User.findByIdAndDelete(req.params.id);
         if (user) {
             if (user.image) {
-                try {
-                    fs.unlinkSync('./uploads/' + user.image);
-                } catch (error) {
-                    console.log('Error deleting image:', error);
-                }
+                await cleanupUploadedFileByName(user.image);
             }
             req.session.message = {
                 type: 'info',
