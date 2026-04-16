@@ -22,6 +22,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage }).single('image');
 const uploadsDir = path.resolve(__dirname, '../uploads');
+const defaultImageFilenames = new Set(['user_unknown.png']);
 
 async function cleanupUploadedFile(file) {
     if (!file || !file.path) {
@@ -39,6 +40,10 @@ async function cleanupUploadedFile(file) {
 
 async function cleanupUploadedFileByName(filename) {
     if (!filename) {
+        return;
+    }
+
+    if (defaultImageFilenames.has(filename)) {
         return;
     }
 
@@ -157,17 +162,19 @@ router.get('/edit/:id', async (req, res) => {
 // Update user
 router.post('/update/:id', upload, async (req, res) => {
     try {
-        const oldImage = req.body.old_image;
-        let newImage = oldImage;
-
-        if (req.file) {
-            newImage = req.file.filename;
-
-            // Delete the old image file if it exists
-            if (oldImage) {
-                await cleanupUploadedFileByName(oldImage);
-            }
+        const existingUser = await User.findById(req.params.id);
+        if (!existingUser) {
+            await cleanupUploadedFile(req.file);
+            req.session.message = {
+                type: 'danger',
+                message: 'User not found'
+            };
+            res.redirect('/');
+            return;
         }
+
+        const oldImage = existingUser.image;
+        const newImage = req.file ? req.file.filename : oldImage;
 
         const updatedUser = await User.findByIdAndUpdate(req.params.id, {
             name: req.body.name,
@@ -177,12 +184,23 @@ router.post('/update/:id', upload, async (req, res) => {
         }, { new: true });
 
         if (updatedUser) {
+            if (req.file && oldImage && oldImage !== newImage) {
+                await cleanupUploadedFileByName(oldImage);
+            }
+
             req.session.message = {
                 type: 'success',
                 message: 'User updated successfully!'
             };
+        } else {
+            await cleanupUploadedFile(req.file);
+            req.session.message = {
+                type: 'danger',
+                message: 'User update failed'
+            };
         }
     } catch (error) {
+        await cleanupUploadedFile(req.file);
         req.session.message = {
             type: 'danger',
             message: error.message
