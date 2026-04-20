@@ -71,7 +71,7 @@ describe('POST /add Route Handler', () => {
             image: 'mock_upload_123.png' // Verifying Multer mock worked
         });
         expect(saveMock).toHaveBeenCalled();
-        expect(response.status).toBe(500); // 302 Found (Redirect)
+        expect(response.status).toBe(302); // 302 Found (Redirect)
         expect(response.header.location).toBe('/');
     });
 
